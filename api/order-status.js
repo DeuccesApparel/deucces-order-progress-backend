@@ -1,143 +1,218 @@
 import crypto from "crypto";
 
-/**
- * Optional: App-Proxy Signatur prüfen (empfohlen).
- * Shopify App Proxy sendet i.d.R. `signature` (manchmal `hmac`).
- * Wenn SHOPIFY_API_SECRET nicht gesetzt ist, wird nicht geprüft.
- */
+/* ================================
+   Proxy Signatur prüfen (optional)
+================================ */
+
 function verifyProxySignature(req, secret) {
   const url = new URL(req.url, `https://${req.headers.host}`);
   const params = Object.fromEntries(url.searchParams.entries());
 
   const provided = params.signature || params.hmac;
-  if (!provided) return { ok: false, reason: "Missing signature/hmac" };
+  if (!provided) return { ok: false };
 
-  // signature/hmac darf nicht in die Berechnung rein
   delete params.signature;
   delete params.hmac;
 
-  // Alphabetisch sortieren und in query-string bauen
   const message = Object.keys(params)
     .sort()
     .map((k) => `${k}=${params[k]}`)
     .join("");
 
-  const digest = crypto.createHmac("sha256", secret).update(message).digest("hex");
+  const digest = crypto
+    .createHmac("sha256", secret)
+    .update(message)
+    .digest("hex");
 
-  // Shopify sendet i.d.R. hex lowercase
-  const ok = crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(provided));
-  return ok ? { ok: true } : { ok: false, reason: "Invalid signature/hmac" };
+  const ok = crypto.timingSafeEqual(
+    Buffer.from(digest),
+    Buffer.from(provided)
+  );
+
+  return { ok };
 }
 
+/* ================================
+   Shopify GraphQL Call
+================================ */
+
 async function shopifyGraphQL({ shop, token, apiVersion, query, variables }) {
-  const res = await fetch(`https://${shop}/admin/api/${apiVersion}/graphql.json`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Shopify-Access-Token": token,
-    },
-    body: JSON.stringify({ query, variables }),
-  });
+  const res = await fetch(
+    `https://${shop}/admin/api/${apiVersion}/graphql.json`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": token,
+      },
+      body: JSON.stringify({ query, variables }),
+    }
+  );
 
   const json = await res.json();
+
   if (!res.ok || json.errors) {
-    const msg = json?.errors?.[0]?.message || `Shopify error (${res.status})`;
-    throw new Error(msg);
+    throw new Error(
+      json?.errors?.[0]?.message || `Shopify error (${res.status})`
+    );
   }
+
   return json.data;
 }
 
+/* ================================
+   Status Logik
+================================ */
+
 function computeStage(days) {
-  // exakt nach deiner Logik
-  if (days < 2) {
-    return {
-      stage: "processing",
-      message: 'Die Bestellung ist bei uns eingegangen und wird nun verarbeitet.',
-    };
-  }
-  if (days < 4) {
-    return {
-      stage: "packing",
-      message:
-        'Die Bestellung wird von unserem Lager verpackt, die Sendungsnummer erhältst du in Kürze per Mail.',
-    };
-  }
-  return { stage: "shipped", message: "Bestellung versendet." };
+  if (days < 2) return "processing";
+  if (days < 4) return "packing";
+  return "shipped";
 }
 
-function wantsHtml(req) {
-  const accept = req.headers?.accept || "";
-  return accept.includes("text/html");
+function getMessage(stage) {
+  if (stage === "processing")
+    return "Die Bestellung ist bei uns eingegangen und wird nun verarbeitet.";
+  if (stage === "packing")
+    return "Die Bestellung wird von unserem Lager verpackt, die Sendungsnummer erhältst du in Kürze per Mail.";
+  return "Bestellung versendet.";
 }
+
+/* ================================
+   HTML Rendering (Timeline UI)
+================================ */
 
 function renderHtml({ orderName, stage, message, daysSince }) {
-  return `<!doctype html>
+  const steps = [
+    { key: "processing", label: "Eingegangen", icon: "🧾" },
+    { key: "packing", label: "Wird verpackt", icon: "📦" },
+    { key: "shipped", label: "Versendet", icon: "🚚" },
+  ];
+
+  const currentIndex = steps.findIndex((s) => s.key === stage);
+
+  const timeline = steps
+    .map((step, index) => {
+      const active = index <= currentIndex;
+      return `
+        <div class="step ${active ? "active" : ""}">
+          <div class="icon">${step.icon}</div>
+          <div class="label">${step.label}</div>
+        </div>
+      `;
+    })
+    .join("");
+
+  return `
+<!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Bestellstatus</title>
-  <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; margin:0; padding:32px; background:#fff; color:#111;}
-    .card{max-width:720px; margin:0 auto; border:1px solid #e8e8e8; border-radius:16px; padding:24px;}
-    .muted{color:#666; font-size:14px;}
-    h1{margin:0 0 8px 0; font-size:22px;}
-    .msg{margin-top:14px; font-size:18px; line-height:1.35;}
-    .pill{display:inline-block; padding:6px 10px; border-radius:999px; border:1px solid #ddd; font-size:12px; text-transform:uppercase; letter-spacing:.06em;}
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Bestellstatus</title>
+<style>
+body {
+  margin: 0;
+  padding: 40px 20px;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #ffffff;
+  color: #111;
+}
+.card {
+  max-width: 700px;
+  margin: auto;
+  border: 1px solid #eee;
+  border-radius: 20px;
+  padding: 30px;
+}
+h1 {
+  margin-top: 0;
+}
+.timeline {
+  display: flex;
+  justify-content: space-between;
+  margin: 40px 0;
+}
+.step {
+  text-align: center;
+  flex: 1;
+  opacity: 0.4;
+}
+.step.active {
+  opacity: 1;
+}
+.icon {
+  font-size: 32px;
+}
+.label {
+  margin-top: 10px;
+  font-size: 14px;
+}
+.message {
+  font-size: 18px;
+  margin-top: 20px;
+}
+.meta {
+  margin-top: 20px;
+  font-size: 14px;
+  color: #666;
+}
+@media (max-width: 600px) {
+  .timeline {
+    flex-direction: column;
+    gap: 20px;
+  }
+}
+</style>
 </head>
 <body>
   <div class="card">
-    <div class="muted">Bestellung: <strong>${orderName || "-"}</strong></div>
     <h1>Bestellstatus</h1>
-    <div class="pill">${stage}</div>
-    <div class="msg">${message}</div>
-    <div class="muted" style="margin-top:16px;">Tage seit Bestellung: ${daysSince}</div>
+    <div><strong>Bestellung:</strong> ${orderName}</div>
+    <div class="timeline">${timeline}</div>
+    <div class="message">${message}</div>
+    <div class="meta">Tage seit Bestellung: ${daysSince}</div>
   </div>
 </body>
-</html>`;
+</html>
+`;
 }
+
+/* ================================
+   API Handler
+================================ */
 
 export default async function handler(req, res) {
   try {
-    const shop = process.env.SHOPIFY_SHOP; // z.B. deucces.myshopify.com
+    const shop = process.env.SHOPIFY_SHOP; // 5z4ipr-iq.myshopify.com
     const token = process.env.SHOPIFY_ACCESS_TOKEN;
-    const apiVersion = process.env.SHOPIFY_API_VERSION || "2026-01";
-    const secret = process.env.SHOPIFY_API_SECRET; // empfohlen für Proxy-Verify
+    const apiVersion = process.env.SHOPIFY_API_VERSION || "2025-01";
+    const secret = process.env.SHOPIFY_API_SECRET;
 
     if (!shop || !token) {
-      return res.status(500).json({ error: "Missing SHOPIFY_SHOP / SHOPIFY_ACCESS_TOKEN env" });
+      return res
+        .status(500)
+        .json({ error: "Missing SHOPIFY_SHOP / SHOPIFY_ACCESS_TOKEN" });
     }
 
-    // Optional: Proxy Signatur prüfen
     if (secret) {
       const check = verifyProxySignature(req, secret);
-      if (!check.ok) {
-        return res.status(401).json({ error: "Unauthorized proxy request", reason: check.reason });
-      }
+      if (!check.ok)
+        return res.status(401).json({ error: "Invalid proxy signature" });
     }
 
     const url = new URL(req.url, `https://${req.headers.host}`);
-    const orderParam = (url.searchParams.get("order") || "").trim(); // z.B. 1043
-    const emailParam = (url.searchParams.get("email") || "").trim().toLowerCase();
+    const orderParam = (url.searchParams.get("order") || "").trim();
+    const emailParam = (url.searchParams.get("email") || "").trim();
 
-    if (!orderParam) {
-      return res.status(400).json({
-        error: "Missing order",
-        hint: "Nutze ?order=1043&email=kunde@mail.de",
-      });
-    }
+    if (!orderParam)
+      return res.status(400).json({ error: "Missing order parameter" });
 
-    // Query bauen: mind. nach name/order_number suchen.
-    // Bei Shopify heißt es meist name "#1043"
-    // Mit email ist es deutlich sicherer (sonst könnte jeder Ordernummern raten).
-    const parts = [];
-    // name kann mit/ohne # vorkommen
-    const normalized = orderParam.startsWith("#") ? orderParam : `#${orderParam}`;
-    parts.push(`name:${normalized}`);
-    parts.push(`name:${orderParam}`); // fallback
+    const normalized = orderParam.startsWith("#")
+      ? orderParam
+      : `#${orderParam}`;
 
-    let queryString = `(${parts.join(" OR ")})`;
+    let queryString = `(name:${normalized} OR name:${orderParam})`;
     if (emailParam) queryString += ` AND email:${emailParam}`;
 
     const data = await shopifyGraphQL({
@@ -149,14 +224,12 @@ export default async function handler(req, res) {
           orders(first: 1, query: $q, sortKey: CREATED_AT, reverse: true) {
             edges {
               node {
-                id
                 name
                 createdAt
                 displayFulfillmentStatus
-                fulfillments(first: 10) {
+                fulfillments(first: 5) {
                   trackingInfo {
                     number
-                    url
                   }
                 }
               }
@@ -168,41 +241,43 @@ export default async function handler(req, res) {
     });
 
     const node = data?.orders?.edges?.[0]?.node;
-    if (!node) {
-      return res.status(404).json({
-        error: "Order not found",
-        hint: "Prüfe order und (idealerweise) email Parameter",
-      });
-    }
+    if (!node)
+      return res.status(404).json({ error: "Order not found" });
 
     const createdAt = new Date(node.createdAt);
     const now = new Date();
-    const daysSince = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
+    const daysSince = Math.floor(
+      (now - createdAt) / (1000 * 60 * 60 * 24)
+    );
 
-    // Optional: Wenn Shopify schon Tracking hat, direkt "versendet"
+    let stage = computeStage(daysSince);
+
     const hasTracking =
-      (node.fulfillments || []).some((f) => (f.trackingInfo || []).some((t) => t?.number || t?.url));
+      node.fulfillments?.some((f) =>
+        f.trackingInfo?.some((t) => t?.number)
+      ) || false;
 
-    let stageObj = computeStage(daysSince);
-    if (hasTracking || String(node.displayFulfillmentStatus).toUpperCase() === "FULFILLED") {
-      stageObj = { stage: "shipped", message: "Bestellung versendet." };
+    if (
+      hasTracking ||
+      node.displayFulfillmentStatus === "FULFILLED"
+    ) {
+      stage = "shipped";
     }
 
-    const payload = {
-      orderName: node.name,
-      createdAt: node.createdAt,
-      daysSince,
-      ...stageObj,
-    };
+    const message = getMessage(stage);
 
-    if (wantsHtml(req)) {
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      return res.status(200).send(renderHtml(payload));
-    }
-
-    res.setHeader("Content-Type", "application/json; charset=utf-8");
-    return res.status(200).json(payload);
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.status(200).send(
+      renderHtml({
+        orderName: node.name,
+        stage,
+        message,
+        daysSince,
+      })
+    );
   } catch (err) {
-    return res.status(500).json({ error: "Server error", message: err?.message || String(err) });
+    return res
+      .status(500)
+      .json({ error: "Server error", message: err.message });
   }
 }
