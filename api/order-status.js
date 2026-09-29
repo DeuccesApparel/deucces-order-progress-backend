@@ -1,5 +1,39 @@
 import crypto from "crypto";
 
+// Dev-Dashboard apps no longer provide a permanent admin token.  Obtain a
+// short-lived token from Shopify on demand instead, and reuse it while this
+// serverless instance stays warm.
+let cachedAccessToken;
+let cachedAccessTokenExpiresAt = 0;
+
+async function getShopifyAccessToken({ shop, clientId, clientSecret, legacyToken }) {
+  if (!clientId || !clientSecret) return legacyToken;
+
+  if (cachedAccessToken && Date.now() < cachedAccessTokenExpiresAt) {
+    return cachedAccessToken;
+  }
+
+  const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: clientId,
+      client_secret: clientSecret,
+    }),
+  });
+  const payload = await response.json();
+
+  if (!response.ok || !payload.access_token) {
+    throw new Error(payload?.error_description || payload?.error || `Token exchange failed (${response.status})`);
+  }
+
+  cachedAccessToken = payload.access_token;
+  // Refresh one minute early. Shopify currently issues these for 24 hours.
+  cachedAccessTokenExpiresAt = Date.now() + Math.max((payload.expires_in || 86400) - 60, 60) * 1000;
+  return cachedAccessToken;
+}
+
 /* ================================
    Proxy Signatur prüfen (optional)
 ================================ */
@@ -185,14 +219,16 @@ h1 {
 export default async function handler(req, res) {
   try {
     const shop = process.env.SHOPIFY_SHOP; // 5z4ipr-iq.myshopify.com
-    const token = process.env.SHOPIFY_ACCESS_TOKEN;
+    const clientId = process.env.SHOPIFY_CLIENT_ID;
+    const clientSecret = process.env.SHOPIFY_CLIENT_SECRET;
+    const legacyToken = process.env.SHOPIFY_ACCESS_TOKEN;
     const apiVersion = process.env.SHOPIFY_API_VERSION || "2025-01";
     const secret = process.env.SHOPIFY_API_SECRET;
 
-    if (!shop || !token) {
+    if (!shop || (!legacyToken && (!clientId || !clientSecret))) {
       return res
         .status(500)
-        .json({ error: "Missing SHOPIFY_SHOP / SHOPIFY_ACCESS_TOKEN" });
+        .json({ error: "Missing Shopify credentials" });
     }
 
     if (secret) {
@@ -207,6 +243,13 @@ export default async function handler(req, res) {
 
     if (!orderParam)
       return res.status(400).json({ error: "Missing order parameter" });
+
+    const token = await getShopifyAccessToken({
+      shop,
+      clientId,
+      clientSecret,
+      legacyToken,
+    });
 
     const normalized = orderParam.startsWith("#")
       ? orderParam
