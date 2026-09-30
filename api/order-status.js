@@ -149,7 +149,7 @@ body {
   margin: 0;
   padding: 40px 20px;
   font-family: system-ui, -apple-system, sans-serif;
-  background: #ffffff;
+  background: radial-gradient(circle at 15% 0%, #123c72 0, transparent 31%), radial-gradient(circle at 95% 100%, #412052 0, transparent 30%), #030a19;
   color: #111;
 }
 .card {
