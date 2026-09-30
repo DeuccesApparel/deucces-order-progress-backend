@@ -145,67 +145,173 @@ function renderHtml({ orderName, stage, message, daysSince }) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Bestellstatus</title>
 <style>
+:root {
+  --navy: #07152e;
+  --navy-deep: #030a19;
+  --blue: #27b7ff;
+  --pink: #ff4f9a;
+  --ink: #eef4ff;
+  --muted: #a8b6d0;
+}
+* { box-sizing: border-box; }
 body {
   margin: 0;
-  padding: 40px 20px;
-  font-family: system-ui, -apple-system, sans-serif;
-  background: radial-gradient(circle at 15% 0%, #123c72 0, transparent 31%), radial-gradient(circle at 95% 100%, #412052 0, transparent 30%), #030a19;
-  color: #111;
+  min-height: 100vh;
+  padding: 34px 18px;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: radial-gradient(circle at 15% 0%, #123c72 0, transparent 31%), radial-gradient(circle at 95% 100%, #412052 0, transparent 30%), var(--navy-deep);
+  color: var(--ink);
 }
 .card {
-  max-width: 700px;
+  max-width: 720px;
   margin: auto;
-  border: 1px solid #eee;
-  border-radius: 20px;
-  padding: 30px;
+  overflow: hidden;
+  border: 1px solid rgba(110, 173, 255, .26);
+  border-radius: 24px;
+  background: rgba(7, 21, 46, .94);
+  box-shadow: 0 22px 65px rgba(0, 0, 0, .38);
+}
+.brand {
+  padding: 14px 30px 12px;
+  border-bottom: 1px solid rgba(110, 173, 255, .2);
+  background: linear-gradient(105deg, rgba(39, 183, 255, .14), rgba(255, 79, 154, .08));
+}
+.brand-logo-frame {
+  width: 126px;
+  height: 95px;
+  overflow: hidden;
+}
+.brand-logo {
+  display: block;
+  width: 202px;
+  max-width: none;
+  height: auto;
+  transform: translate(-41px, -15px);
+}
+.content { padding: 34px 30px 30px; }
+.eyebrow {
+  margin: 0 0 10px;
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
 }
 h1 {
-  margin-top: 0;
+  margin: 0;
+  color: #fff;
+  font-size: clamp(28px, 6vw, 38px);
+  line-height: 1.06;
+  letter-spacing: -.7px;
+}
+.order {
+  display: inline-flex;
+  margin-top: 17px;
+  padding: 8px 12px;
+  border: 1px solid rgba(39, 183, 255, .38);
+  border-radius: 999px;
+  color: #dcedff;
+  background: rgba(39, 183, 255, .10);
+  font-size: 14px;
+  font-weight: 700;
 }
 .timeline {
   display: flex;
   justify-content: space-between;
-  margin: 40px 0;
+  position: relative;
+  gap: 9px;
+  margin: 38px 0 32px;
+}
+.timeline::before {
+  position: absolute;
+  z-index: 0;
+  top: 20px;
+  right: 12%;
+  left: 12%;
+  height: 2px;
+  background: rgba(168, 182, 208, .26);
+  content: "";
 }
 .step {
+  position: relative;
+  z-index: 1;
   text-align: center;
   flex: 1;
-  opacity: 0.4;
+  color: var(--muted);
 }
 .step.active {
-  opacity: 1;
+  color: #fff;
 }
 .icon {
-  font-size: 32px;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  margin: 0 auto;
+  place-items: center;
+  border: 2px solid #50617f;
+  border-radius: 50%;
+  background: var(--navy);
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 800;
+}
+.step.active .icon {
+  border-color: var(--blue);
+  background: linear-gradient(135deg, #178fd0, #6755d8);
+  color: #fff;
+  box-shadow: 0 0 0 5px rgba(39, 183, 255, .11), 0 0 24px rgba(39, 183, 255, .35);
 }
 .label {
-  margin-top: 10px;
-  font-size: 14px;
+  margin-top: 13px;
+  font-size: 13px;
+  font-weight: 700;
 }
 .message {
-  font-size: 18px;
-  margin-top: 20px;
+  padding: 19px 20px;
+  border-left: 3px solid var(--pink);
+  border-radius: 0 12px 12px 0;
+  background: rgba(255, 255, 255, .06);
+  color: #fff;
+  font-size: 16px;
+  line-height: 1.5;
 }
 .meta {
-  margin-top: 20px;
-  font-size: 14px;
-  color: #666;
+  margin: 24px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.footer {
+  padding: 17px 30px;
+  border-top: 1px solid rgba(110, 173, 255, .17);
+  color: #8ca0c1;
+  background: rgba(0, 0, 0, .13);
+  font-size: 12px;
 }
 @media (max-width: 600px) {
+  body { padding: 16px 12px; }
+  .brand, .content { padding-right: 21px; padding-left: 21px; }
   .timeline {
-    flex-direction: column;
-    gap: 20px;
+    gap: 4px;
+    margin: 31px 0 28px;
   }
+  .timeline::before { right: 16%; left: 16%; }
+  .label { font-size: 11px; }
+  .footer { padding-right: 21px; padding-left: 21px; }
 }
 </style>
 </head>
 <body>
   <div class="card">
-    <h1>Bestellstatus</h1>
-    <div><strong>Bestellung:</strong> ${orderName}</div>
-    <div class="timeline">${timeline}</div>
-    <div class="message">${message}</div>
-    <div class="meta">Tage seit Bestellung: ${daysSince}</div>
+    <div class="brand"><div class="brand-logo-frame"><img class="brand-logo" width="202" height="135" src="https://cdn.shopify.com/s/files/1/0929/7995/4008/files/ChatGPT_Image_Jul_20_2026_02_30_37_PM.png?v=1790711078" alt="Deucces Apparel"></div></div>
+    <main class="content">
+      <p class="eyebrow">Live-Bestellstatus</p>
+      <h1>Deine Bestellung<br>ist unterwegs.</h1>
+      <div class="order">Bestellung ${orderName}</div>
+      <div class="timeline">${timeline}</div>
+      <div class="message">${message}</div>
+      <p class="meta">Bestellt vor ${daysSince} ${daysSince === 1 ? "Tag" : "Tagen"}</p>
+    </main>
+    <footer class="footer">DEUCCES APPAREL — danke für deine Bestellung.</footer>
   </div>
 </body>
 </html>
